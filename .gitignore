@@ -1,0 +1,15 @@
+target/
+*.class
+*.jar
+*.iml
+.idea/
+.vscode/
+.DS_Store
+nodebase.db
+nodebase.db-journal
+nodebase.db-wal
+nodebase.db-shm
+logs/
+data/
+storage/
+*.log
