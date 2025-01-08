@@ -6,6 +6,8 @@ import io.nodebase.auth.AuthService;
 import io.nodebase.auth.JwtProvider;
 import io.nodebase.auth.UserRepository;
 import io.nodebase.config.ServerConfig;
+import io.nodebase.database.DatabaseService;
+import io.nodebase.database.DocumentRepository;
 import io.nodebase.middleware.AuthMiddleware;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
@@ -14,6 +16,8 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
@@ -33,9 +37,8 @@ public final class NodebaseServer {
     }
 
     private Connection openDatabase() throws Exception {
-        java.nio.file.Path dataDir = java.nio.file.Paths.get(config.getDataDir());
-        java.nio.file.Files.createDirectories(dataDir);
-        String url = "jdbc:sqlite:" + dataDir.resolve("nodebase.db");
+        Files.createDirectories(Paths.get(config.getDataDir()));
+        String url = "jdbc:sqlite:" + Paths.get(config.getDataDir()).resolve("nodebase.db");
         Connection conn = DriverManager.getConnection(url);
         try (Statement st = conn.createStatement()) {
             st.execute("PRAGMA journal_mode=WAL");
@@ -51,7 +54,10 @@ public final class NodebaseServer {
         ApiKeyService apiKeyService = new ApiKeyService(userRepo);
         AuthMiddleware authMiddleware = new AuthMiddleware(authService, apiKeyService);
 
-        Router router = new Router(config, authService, apiKeyService, authMiddleware);
+        DocumentRepository docRepo = new DocumentRepository(dbConnection);
+        DatabaseService dbService = new DatabaseService(docRepo);
+
+        Router router = new Router(config, authService, apiKeyService, authMiddleware, dbService);
 
         Server srv = new Server();
         srv.setStopTimeout(30_000L);

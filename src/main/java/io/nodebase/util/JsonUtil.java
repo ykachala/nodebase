@@ -53,6 +53,14 @@ public final class JsonUtil {
         }
     }
 
+    public static <T> T fromJson(InputStream in, TypeReference<T> type) {
+        try {
+            return MAPPER.readValue(in, type);
+        } catch (IOException e) {
+            throw new RuntimeException("JSON parse failed: " + e.getMessage(), e);
+        }
+    }
+
     public static <T> T readValue(byte[] bytes, Class<T> type) {
         try {
             return MAPPER.readValue(bytes, type);

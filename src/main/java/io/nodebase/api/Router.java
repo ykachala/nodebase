@@ -3,6 +3,7 @@ package io.nodebase.api;
 import io.nodebase.auth.ApiKeyService;
 import io.nodebase.auth.AuthService;
 import io.nodebase.config.ServerConfig;
+import io.nodebase.database.DatabaseService;
 import io.nodebase.middleware.AuthMiddleware;
 import io.nodebase.util.JsonUtil;
 import jakarta.servlet.http.HttpServlet;
@@ -20,14 +21,17 @@ public final class Router extends HttpServlet {
 
     private final ServerConfig config;
     private final AuthHandler authHandler;
+    private final DatabaseHandler databaseHandler;
     private final AuthMiddleware authMiddleware;
 
     public Router(ServerConfig config,
                   AuthService authService,
                   ApiKeyService apiKeyService,
-                  AuthMiddleware authMiddleware) {
+                  AuthMiddleware authMiddleware,
+                  DatabaseService dbService) {
         this.config = config;
         this.authHandler = new AuthHandler(authService, apiKeyService);
+        this.databaseHandler = new DatabaseHandler(dbService);
         this.authMiddleware = authMiddleware;
     }
 
@@ -50,6 +54,11 @@ public final class Router extends HttpServlet {
 
         if (path.equals("/") || path.equals("/health")) {
             writeJson(resp, 200, Map.of("service", "nodebase", "version", "1.0", "status", "ok"));
+            return;
+        }
+
+        if (path.startsWith("/db/")) {
+            databaseHandler.handle(req, resp);
             return;
         }
 
