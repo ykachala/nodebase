@@ -49,7 +49,8 @@ public final class QueryFilter {
 
             if (field.isBlank() || value == null) continue;
 
-            if ("contains".equals(op)) {
+                // LIKE operator for substring matching
+                if ("contains".equals(op)) {
                 f.clauses.add(new WhereClause(field, "LIKE", "%" + value + "%", true));
             } else {
                 String sqlOp = OPS.get(op);
