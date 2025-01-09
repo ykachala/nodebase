@@ -9,6 +9,9 @@ import io.nodebase.config.ServerConfig;
 import io.nodebase.database.DatabaseService;
 import io.nodebase.database.DocumentRepository;
 import io.nodebase.middleware.AuthMiddleware;
+import io.nodebase.realtime.RealtimeEvent;
+import io.nodebase.realtime.RealtimeWebSocketServlet;
+import io.nodebase.realtime.SubscriptionManager;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.server.Server;
@@ -57,6 +60,14 @@ public final class NodebaseServer {
         DocumentRepository docRepo = new DocumentRepository(dbConnection);
         DatabaseService dbService = new DatabaseService(docRepo);
 
+        SubscriptionManager subscriptionManager = new SubscriptionManager();
+        dbService.setEventEmitter(evt -> subscriptionManager.broadcast(new RealtimeEvent(
+                RealtimeEvent.Type.valueOf(evt.type().name()),
+                evt.collection(),
+                evt.documentId(),
+                evt.data()
+        )));
+
         Router router = new Router(config, authService, apiKeyService, authMiddleware, dbService);
 
         Server srv = new Server();
@@ -69,6 +80,7 @@ public final class NodebaseServer {
 
         ServletContextHandler context = new ServletContextHandler();
         context.setContextPath("/");
+        context.addServlet(new ServletHolder(new RealtimeWebSocketServlet(subscriptionManager, authService)), "/realtime");
         context.addServlet(new ServletHolder(router), "/*");
 
         srv.setHandler(context);
