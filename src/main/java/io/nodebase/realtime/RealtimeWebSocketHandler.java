@@ -36,7 +36,7 @@ public final class RealtimeWebSocketHandler {
         String token = extractToken(session);
         Optional<Claims> claims = authService.validateToken(token != null ? token : "");
         if (claims.isEmpty()) {
-            session.close(4001, "authentication required");
+            session.close(4001, "authentication required", org.eclipse.jetty.websocket.api.Callback.NOOP);
             return;
         }
         this.session = session;
