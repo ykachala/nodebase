@@ -12,6 +12,8 @@ import io.nodebase.middleware.AuthMiddleware;
 import io.nodebase.realtime.RealtimeEvent;
 import io.nodebase.realtime.RealtimeWebSocketServlet;
 import io.nodebase.realtime.SubscriptionManager;
+import io.nodebase.storage.StorageRepository;
+import io.nodebase.storage.StorageService;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.server.Server;
@@ -50,7 +52,7 @@ public final class NodebaseServer {
         return conn;
     }
 
-    private Server buildServer() {
+    private Server buildServer() throws Exception {
         JwtProvider jwtProvider = new JwtProvider(config.getJwtSecret(), config.getJwtExpiryMillis());
         UserRepository userRepo = new UserRepository(dbConnection);
         AuthService authService = new AuthService(userRepo, jwtProvider);
@@ -68,7 +70,11 @@ public final class NodebaseServer {
                 evt.data()
         )));
 
-        Router router = new Router(config, authService, apiKeyService, authMiddleware, dbService);
+        StorageRepository storageRepo = new StorageRepository(dbConnection);
+        Files.createDirectories(Paths.get(config.getStoragePath()));
+        StorageService storageService = new StorageService(storageRepo, config.getStoragePath(), config.getMaxUploadMb());
+
+        Router router = new Router(config, authService, apiKeyService, authMiddleware, dbService, storageService);
 
         Server srv = new Server();
         srv.setStopTimeout(30_000L);

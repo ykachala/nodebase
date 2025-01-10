@@ -5,6 +5,7 @@ import io.nodebase.auth.AuthService;
 import io.nodebase.config.ServerConfig;
 import io.nodebase.database.DatabaseService;
 import io.nodebase.middleware.AuthMiddleware;
+import io.nodebase.storage.StorageService;
 import io.nodebase.util.JsonUtil;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,16 +23,19 @@ public final class Router extends HttpServlet {
     private final ServerConfig config;
     private final AuthHandler authHandler;
     private final DatabaseHandler databaseHandler;
+    private final StorageHandler storageHandler;
     private final AuthMiddleware authMiddleware;
 
     public Router(ServerConfig config,
                   AuthService authService,
                   ApiKeyService apiKeyService,
                   AuthMiddleware authMiddleware,
-                  DatabaseService dbService) {
+                  DatabaseService dbService,
+                  StorageService storageService) {
         this.config = config;
         this.authHandler = new AuthHandler(authService, apiKeyService);
         this.databaseHandler = new DatabaseHandler(dbService);
+        this.storageHandler = new StorageHandler(storageService);
         this.authMiddleware = authMiddleware;
     }
 
@@ -59,6 +63,11 @@ public final class Router extends HttpServlet {
 
         if (path.startsWith("/db/")) {
             databaseHandler.handle(req, resp);
+            return;
+        }
+
+        if (path.startsWith("/storage/") || path.equals("/storage")) {
+            storageHandler.handle(req, resp);
             return;
         }
 
