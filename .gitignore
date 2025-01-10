@@ -11,5 +11,5 @@ nodebase.db-wal
 nodebase.db-shm
 logs/
 data/
-storage/
+/storage/
 *.log
