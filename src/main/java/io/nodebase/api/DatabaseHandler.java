@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import io.nodebase.database.DatabaseService;
 import io.nodebase.database.Document;
 import io.nodebase.database.QueryFilter;
+import io.nodebase.security.RulesEngine;
+import io.nodebase.security.SecurityRule;
 import io.nodebase.util.JsonUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -20,13 +22,14 @@ public final class DatabaseHandler {
     private static final Logger log = LoggerFactory.getLogger(DatabaseHandler.class);
 
     private final DatabaseService dbService;
+    private final RulesEngine rulesEngine;
 
-    public DatabaseHandler(DatabaseService dbService) {
+    public DatabaseHandler(DatabaseService dbService, RulesEngine rulesEngine) {
         this.dbService = dbService;
+        this.rulesEngine = rulesEngine;
     }
 
     public void handle(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        // /db/{collection}[/{id}]
         String path = req.getRequestURI();
         String[] parts = path.replaceFirst("^/db/?", "").split("/", 2);
         String collection = parts.length > 0 ? parts[0] : "";
@@ -40,12 +43,15 @@ public final class DatabaseHandler {
         String userId = (String) req.getAttribute("nodebase.userId");
         String role = (String) req.getAttribute("nodebase.role");
         String method = req.getMethod();
+        String resource = "db/" + collection;
+
+        SecurityRule.Operation op = methodToOperation(method, docId);
 
         try {
             if (docId == null || docId.isBlank()) {
-                handleCollection(req, resp, method, collection, userId, role);
+                handleCollection(req, resp, method, collection, userId, role, resource, op);
             } else {
-                handleDocument(req, resp, method, collection, docId, userId, role);
+                handleDocument(req, resp, method, collection, docId, userId, role, resource, op);
             }
         } catch (DatabaseService.AccessDeniedException e) {
             AuthHandler.writeJson(resp, 403, Map.of("error", e.getMessage()));
@@ -54,10 +60,14 @@ public final class DatabaseHandler {
 
     private void handleCollection(HttpServletRequest req, HttpServletResponse resp,
                                    String method, String collection,
-                                   String userId, String role) throws IOException {
+                                   String userId, String role,
+                                   String resource, SecurityRule.Operation op) throws IOException {
+        if (!rulesEngine.evaluate(resource, op, userId, false, role)) {
+            AuthHandler.writeJson(resp, 403, Map.of("error", "access denied by security rules"));
+            return;
+        }
         if ("GET".equals(method)) {
-            QueryFilter filter = QueryFilter.from(req);
-            List<Document> docs = dbService.list(collection, filter);
+            List<Document> docs = dbService.list(collection, QueryFilter.from(req));
             AuthHandler.writeJson(resp, 200, docs);
         } else if ("POST".equals(method)) {
             Map<String, Object> body = parseBody(req);
@@ -70,7 +80,16 @@ public final class DatabaseHandler {
 
     private void handleDocument(HttpServletRequest req, HttpServletResponse resp,
                                  String method, String collection, String docId,
-                                 String userId, String role) throws IOException {
+                                 String userId, String role,
+                                 String resource, SecurityRule.Operation op) throws IOException {
+        Optional<Document> existing = "GET".equals(method) ? Optional.empty() : dbService.get(docId);
+        boolean isOwner = existing.map(d -> userId != null && userId.equals(d.getOwnerId())).orElse(false);
+
+        if (!rulesEngine.evaluate(resource, op, userId, isOwner, role)) {
+            AuthHandler.writeJson(resp, 403, Map.of("error", "access denied by security rules"));
+            return;
+        }
+
         switch (method) {
             case "GET" -> {
                 Optional<Document> doc = dbService.get(docId);
@@ -110,7 +129,14 @@ public final class DatabaseHandler {
         }
     }
 
-    @SuppressWarnings("unchecked")
+    private static SecurityRule.Operation methodToOperation(String method, String docId) {
+        return switch (method) {
+            case "GET"            -> SecurityRule.Operation.READ;
+            case "DELETE"         -> SecurityRule.Operation.DELETE;
+            default               -> SecurityRule.Operation.WRITE;
+        };
+    }
+
     private static Map<String, Object> parseBody(HttpServletRequest req) {
         try {
             return JsonUtil.fromJson(req.getInputStream(), new TypeReference<Map<String, Object>>() {});
