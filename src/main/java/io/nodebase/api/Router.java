@@ -1,10 +1,12 @@
 package io.nodebase.api;
 
+import io.nodebase.admin.AdminHandler;
 import io.nodebase.auth.ApiKeyService;
 import io.nodebase.auth.AuthService;
 import io.nodebase.config.ServerConfig;
 import io.nodebase.database.DatabaseService;
 import io.nodebase.middleware.AuthMiddleware;
+import io.nodebase.security.RulesEngine;
 import io.nodebase.storage.StorageService;
 import io.nodebase.util.JsonUtil;
 import jakarta.servlet.http.HttpServlet;
@@ -20,10 +22,10 @@ public final class Router extends HttpServlet {
 
     private static final Logger log = LoggerFactory.getLogger(Router.class);
 
-    private final ServerConfig config;
     private final AuthHandler authHandler;
     private final DatabaseHandler databaseHandler;
     private final StorageHandler storageHandler;
+    private final AdminHandler adminHandler;
     private final AuthMiddleware authMiddleware;
 
     public Router(ServerConfig config,
@@ -31,11 +33,13 @@ public final class Router extends HttpServlet {
                   ApiKeyService apiKeyService,
                   AuthMiddleware authMiddleware,
                   DatabaseService dbService,
-                  StorageService storageService) {
-        this.config = config;
+                  StorageService storageService,
+                  RulesEngine rulesEngine,
+                  AdminHandler adminHandler) {
         this.authHandler = new AuthHandler(authService, apiKeyService);
-        this.databaseHandler = new DatabaseHandler(dbService);
-        this.storageHandler = new StorageHandler(storageService);
+        this.databaseHandler = new DatabaseHandler(dbService, rulesEngine);
+        this.storageHandler = new StorageHandler(storageService, rulesEngine);
+        this.adminHandler = adminHandler;
         this.authMiddleware = authMiddleware;
     }
 
@@ -68,6 +72,11 @@ public final class Router extends HttpServlet {
 
         if (path.startsWith("/storage/") || path.equals("/storage")) {
             storageHandler.handle(req, resp);
+            return;
+        }
+
+        if (path.startsWith("/admin")) {
+            adminHandler.handle(req, resp);
             return;
         }
 

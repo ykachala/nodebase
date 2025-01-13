@@ -1,5 +1,6 @@
 package io.nodebase;
 
+import io.nodebase.admin.AdminHandler;
 import io.nodebase.api.Router;
 import io.nodebase.auth.ApiKeyService;
 import io.nodebase.auth.AuthService;
@@ -12,6 +13,7 @@ import io.nodebase.middleware.AuthMiddleware;
 import io.nodebase.realtime.RealtimeEvent;
 import io.nodebase.realtime.RealtimeWebSocketServlet;
 import io.nodebase.realtime.SubscriptionManager;
+import io.nodebase.security.RulesEngine;
 import io.nodebase.storage.StorageRepository;
 import io.nodebase.storage.StorageService;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
@@ -34,6 +36,7 @@ public final class NodebaseServer {
     private final ServerConfig config;
     private final Server server;
     private Connection dbConnection;
+    private RulesEngine rulesEngine;
 
     public NodebaseServer(ServerConfig config) throws Exception {
         this.config = config;
@@ -74,7 +77,11 @@ public final class NodebaseServer {
         Files.createDirectories(Paths.get(config.getStoragePath()));
         StorageService storageService = new StorageService(storageRepo, config.getStoragePath(), config.getMaxUploadMb());
 
-        Router router = new Router(config, authService, apiKeyService, authMiddleware, dbService, storageService);
+        rulesEngine = new RulesEngine(config.getDataDir());
+        AdminHandler adminHandler = new AdminHandler(userRepo, dbService, storageService, rulesEngine, config.getDataDir());
+
+        Router router = new Router(config, authService, apiKeyService, authMiddleware,
+                dbService, storageService, rulesEngine, adminHandler);
 
         Server srv = new Server();
         srv.setStopTimeout(30_000L);
@@ -104,6 +111,7 @@ public final class NodebaseServer {
 
     public void stop() throws Exception {
         log.info("Stopping Nodebase ...");
+        if (rulesEngine != null) rulesEngine.shutdown();
         server.stop();
         if (dbConnection != null && !dbConnection.isClosed()) {
             dbConnection.close();
