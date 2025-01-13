@@ -1,8 +1,9 @@
 package io.nodebase.api;
 
+import io.nodebase.security.RulesEngine;
+import io.nodebase.security.SecurityRule;
 import io.nodebase.storage.StorageObject;
 import io.nodebase.storage.StorageService;
-import io.nodebase.util.JsonUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -18,13 +19,14 @@ public final class StorageHandler {
     private static final Logger log = LoggerFactory.getLogger(StorageHandler.class);
 
     private final StorageService storageService;
+    private final RulesEngine rulesEngine;
 
-    public StorageHandler(StorageService storageService) {
+    public StorageHandler(StorageService storageService, RulesEngine rulesEngine) {
         this.storageService = storageService;
+        this.rulesEngine = rulesEngine;
     }
 
     public void handle(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        // /storage/{bucket}[/{*path}]
         String rawPath = req.getRequestURI().replaceFirst("^/storage/?", "");
         int slash = rawPath.indexOf('/');
         String bucket = slash >= 0 ? rawPath.substring(0, slash) : rawPath;
@@ -38,6 +40,23 @@ public final class StorageHandler {
         String userId = (String) req.getAttribute("nodebase.userId");
         String role = (String) req.getAttribute("nodebase.role");
         String method = req.getMethod();
+        String resource = "storage/" + bucket;
+
+        SecurityRule.Operation op = switch (method) {
+            case "GET"    -> SecurityRule.Operation.READ;
+            case "DELETE" -> SecurityRule.Operation.DELETE;
+            default       -> SecurityRule.Operation.WRITE;
+        };
+
+        Optional<StorageObject> existing = (filePath != null && !filePath.isBlank())
+                ? storageService.getMeta(bucket, filePath)
+                : Optional.empty();
+        boolean isOwner = existing.map(o -> userId != null && userId.equals(o.getOwnerId())).orElse(false);
+
+        if (!rulesEngine.evaluate(resource, op, userId, isOwner, role)) {
+            AuthHandler.writeJson(resp, 403, Map.of("error", "access denied by security rules"));
+            return;
+        }
 
         try {
             if (filePath == null || filePath.isBlank()) {
@@ -51,10 +70,10 @@ public final class StorageHandler {
             }
 
             switch (method) {
-                case "POST", "PUT" -> upload(req, resp, bucket, filePath, userId, role);
-                case "GET" -> download(req, resp, bucket, filePath);
-                case "DELETE" -> delete(req, resp, bucket, filePath, userId, role);
-                default -> AuthHandler.writeJson(resp, 405, Map.of("error", "method not allowed"));
+                case "POST", "PUT" -> upload(req, resp, bucket, filePath, userId);
+                case "GET"         -> download(resp, bucket, filePath, existing);
+                case "DELETE"      -> delete(resp, bucket, filePath, userId, role);
+                default            -> AuthHandler.writeJson(resp, 405, Map.of("error", "method not allowed"));
             }
         } catch (StorageService.StorageException e) {
             int status = e.getMessage().contains("not authorized") ? 403 :
@@ -64,7 +83,7 @@ public final class StorageHandler {
     }
 
     private void upload(HttpServletRequest req, HttpServletResponse resp,
-                        String bucket, String path, String userId, String role) throws IOException {
+                        String bucket, String path, String userId) throws IOException {
         String contentType = req.getContentType();
         long contentLength = req.getContentLengthLong();
         StorageObject obj = storageService.store(bucket, path, req.getInputStream(),
@@ -72,9 +91,8 @@ public final class StorageHandler {
         AuthHandler.writeJson(resp, 201, obj);
     }
 
-    private void download(HttpServletRequest req, HttpServletResponse resp,
-                          String bucket, String path) throws IOException {
-        Optional<StorageObject> meta = storageService.getMeta(bucket, path);
+    private void download(HttpServletResponse resp, String bucket, String path,
+                          Optional<StorageObject> meta) throws IOException {
         if (meta.isEmpty()) {
             AuthHandler.writeJson(resp, 404, Map.of("error", "not found"));
             return;
@@ -85,8 +103,8 @@ public final class StorageHandler {
         storageService.streamFile(bucket, path, resp.getOutputStream());
     }
 
-    private void delete(HttpServletRequest req, HttpServletResponse resp,
-                        String bucket, String path, String userId, String role) throws IOException {
+    private void delete(HttpServletResponse resp, String bucket, String path,
+                        String userId, String role) throws IOException {
         boolean deleted = storageService.delete(bucket, path, userId, role);
         if (deleted) {
             AuthHandler.writeJson(resp, 200, Map.of("deleted", path));
