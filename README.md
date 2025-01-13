@@ -1,6 +1,6 @@
 # Nodebase
 
-Self-hosted Backend-as-a-Service written in pure Java 21. Ships as a single fat JAR — no application server, no external broker, no managed cloud required. Drop it on any JVM host and get a production-grade backend with auth, a document store, real-time subscriptions, file storage, and a hot-reloading security rules engine.
+Self-hosted Backend-as-a-Service written in pure Java 21. Ships as a single fat JAR — no application server, no external broker, no managed cloud required. Drop it on any JVM host and you have a production-grade backend with auth, a document store, real-time subscriptions, file storage, and a hot-reloading security rules engine.
 
 **Stack:** Jetty 12 · SQLite (WAL) · JJWT · BCrypt · Jackson · Logback · Maven assembly
 
