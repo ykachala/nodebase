@@ -1,0 +1,10 @@
+[
+  { "resource": "health",      "operation": "READ",   "condition": "PUBLIC",        "enabled": true },
+  { "resource": "db/*",        "operation": "READ",   "condition": "AUTHENTICATED", "enabled": true },
+  { "resource": "db/*",        "operation": "WRITE",  "condition": "AUTHENTICATED", "enabled": true },
+  { "resource": "db/*",        "operation": "DELETE", "condition": "OWNER",         "enabled": true },
+  { "resource": "storage/*",   "operation": "READ",   "condition": "PUBLIC",        "enabled": true },
+  { "resource": "storage/*",   "operation": "WRITE",  "condition": "AUTHENTICATED", "enabled": true },
+  { "resource": "storage/*",   "operation": "DELETE", "condition": "OWNER",         "enabled": true },
+  { "resource": "admin/*",     "operation": "ALL",    "condition": "ADMIN",         "enabled": true }
+]
