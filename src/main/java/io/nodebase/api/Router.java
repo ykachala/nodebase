@@ -3,6 +3,7 @@ package io.nodebase.api;
 import io.nodebase.admin.AdminHandler;
 import io.nodebase.auth.ApiKeyService;
 import io.nodebase.auth.AuthService;
+import io.nodebase.auth.JwtProvider;
 import io.nodebase.config.ServerConfig;
 import io.nodebase.database.DatabaseService;
 import io.nodebase.middleware.AuthMiddleware;
@@ -31,12 +32,13 @@ public final class Router extends HttpServlet {
     public Router(ServerConfig config,
                   AuthService authService,
                   ApiKeyService apiKeyService,
+                  JwtProvider jwtProvider,
                   AuthMiddleware authMiddleware,
                   DatabaseService dbService,
                   StorageService storageService,
                   RulesEngine rulesEngine,
                   AdminHandler adminHandler) {
-        this.authHandler = new AuthHandler(authService, apiKeyService);
+        this.authHandler = new AuthHandler(authService, apiKeyService, jwtProvider, config.getMasterKey());
         this.databaseHandler = new DatabaseHandler(dbService, rulesEngine);
         this.storageHandler = new StorageHandler(storageService, rulesEngine);
         this.adminHandler = adminHandler;
