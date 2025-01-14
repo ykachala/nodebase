@@ -60,7 +60,7 @@ public final class NodebaseServer {
         UserRepository userRepo = new UserRepository(dbConnection);
         AuthService authService = new AuthService(userRepo, jwtProvider);
         ApiKeyService apiKeyService = new ApiKeyService(userRepo);
-        AuthMiddleware authMiddleware = new AuthMiddleware(authService, apiKeyService);
+        AuthMiddleware authMiddleware = new AuthMiddleware(authService, apiKeyService, config.getMasterKey());
 
         DocumentRepository docRepo = new DocumentRepository(dbConnection);
         DatabaseService dbService = new DatabaseService(docRepo);
@@ -80,8 +80,8 @@ public final class NodebaseServer {
         rulesEngine = new RulesEngine(config.getDataDir());
         AdminHandler adminHandler = new AdminHandler(userRepo, dbService, storageService, rulesEngine, config.getDataDir());
 
-        Router router = new Router(config, authService, apiKeyService, authMiddleware,
-                dbService, storageService, rulesEngine, adminHandler);
+        Router router = new Router(config, authService, apiKeyService, jwtProvider,
+                authMiddleware, dbService, storageService, rulesEngine, adminHandler);
 
         Server srv = new Server();
         srv.setStopTimeout(30_000L);

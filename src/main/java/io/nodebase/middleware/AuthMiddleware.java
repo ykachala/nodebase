@@ -4,6 +4,7 @@ import io.jsonwebtoken.Claims;
 import io.nodebase.auth.ApiKeyService;
 import io.nodebase.auth.AuthService;
 import io.nodebase.auth.User;
+import io.nodebase.config.ServerConfig;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -19,15 +20,14 @@ public final class AuthMiddleware {
 
     private final AuthService authService;
     private final ApiKeyService apiKeyService;
+    private final String masterKey;
 
-    public AuthMiddleware(AuthService authService, ApiKeyService apiKeyService) {
+    public AuthMiddleware(AuthService authService, ApiKeyService apiKeyService, String masterKey) {
         this.authService = authService;
         this.apiKeyService = apiKeyService;
+        this.masterKey = masterKey;
     }
 
-    /**
-     * Returns true if the request is authenticated or public. Writes 401 and returns false otherwise.
-     */
     public boolean authenticate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getRequestURI();
         if (isPublic(path)) return true;
