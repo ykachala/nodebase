@@ -7,6 +7,8 @@ import io.nodebase.auth.JwtProvider;
 import io.nodebase.config.ServerConfig;
 import io.nodebase.database.DatabaseService;
 import io.nodebase.middleware.AuthMiddleware;
+import io.nodebase.middleware.CorsFilter;
+import io.nodebase.middleware.RateLimiter;
 import io.nodebase.security.RulesEngine;
 import io.nodebase.storage.StorageService;
 import io.nodebase.util.JsonUtil;
@@ -17,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.sql.Connection;
 import java.util.Map;
 
 public final class Router extends HttpServlet {
@@ -27,7 +30,10 @@ public final class Router extends HttpServlet {
     private final DatabaseHandler databaseHandler;
     private final StorageHandler storageHandler;
     private final AdminHandler adminHandler;
+    private final HealthHandler healthHandler;
     private final AuthMiddleware authMiddleware;
+    private final CorsFilter corsFilter;
+    private final RateLimiter rateLimiter;
 
     public Router(ServerConfig config,
                   AuthService authService,
@@ -37,12 +43,16 @@ public final class Router extends HttpServlet {
                   DatabaseService dbService,
                   StorageService storageService,
                   RulesEngine rulesEngine,
-                  AdminHandler adminHandler) {
+                  AdminHandler adminHandler,
+                  Connection dbConnection) {
         this.authHandler = new AuthHandler(authService, apiKeyService, jwtProvider, config.getMasterKey());
         this.databaseHandler = new DatabaseHandler(dbService, rulesEngine);
         this.storageHandler = new StorageHandler(storageService, rulesEngine);
         this.adminHandler = adminHandler;
+        this.healthHandler = new HealthHandler(dbConnection);
         this.authMiddleware = authMiddleware;
+        this.corsFilter = new CorsFilter(config.getCorsAllowedOrigins());
+        this.rateLimiter = new RateLimiter();
     }
 
     @Override
@@ -55,6 +65,14 @@ public final class Router extends HttpServlet {
             return;
         }
 
+        if (!corsFilter.handle(req, resp)) return;
+        if (!rateLimiter.allow(req, resp)) return;
+
+        if (path.startsWith("/health")) {
+            healthHandler.handle(req, resp);
+            return;
+        }
+
         if (path.startsWith("/auth")) {
             authHandler.handle(req, resp);
             return;
@@ -62,7 +80,7 @@ public final class Router extends HttpServlet {
 
         if (!authMiddleware.authenticate(req, resp)) return;
 
-        if (path.equals("/") || path.equals("/health")) {
+        if (path.equals("/")) {
             writeJson(resp, 200, Map.of("service", "nodebase", "version", "1.0", "status", "ok"));
             return;
         }

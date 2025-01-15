@@ -81,7 +81,7 @@ public final class NodebaseServer {
         AdminHandler adminHandler = new AdminHandler(userRepo, dbService, storageService, rulesEngine, config.getDataDir());
 
         Router router = new Router(config, authService, apiKeyService, jwtProvider,
-                authMiddleware, dbService, storageService, rulesEngine, adminHandler);
+                authMiddleware, dbService, storageService, rulesEngine, adminHandler, dbConnection);
 
         Server srv = new Server();
         srv.setStopTimeout(30_000L);
@@ -103,7 +103,7 @@ public final class NodebaseServer {
     public void start() throws Exception {
         server.start();
         log.info("================================================================");
-        log.info(" Nodebase 1.0  listening on http://{}:{}", config.getHost(), config.getPort());
+        log.info(" Nodebase 1.0  |  http://{}:{}", config.getHost(), config.getPort());
         log.info(" data dir : {}", config.getDataDir());
         log.info(" storage  : {}", config.getStoragePath());
         log.info("================================================================");
