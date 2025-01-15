@@ -18,6 +18,7 @@ import io.nodebase.storage.StorageRepository;
 import io.nodebase.storage.StorageService;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
+import org.eclipse.jetty.ee10.websocket.server.config.JettyWebSocketServletContainerInitializer;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.slf4j.Logger;
@@ -93,6 +94,7 @@ public final class NodebaseServer {
 
         ServletContextHandler context = new ServletContextHandler();
         context.setContextPath("/");
+        JettyWebSocketServletContainerInitializer.configure(context, null);
         context.addServlet(new ServletHolder(new RealtimeWebSocketServlet(subscriptionManager, authService)), "/realtime");
         context.addServlet(new ServletHolder(router), "/*");
 
