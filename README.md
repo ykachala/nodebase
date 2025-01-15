@@ -1,184 +1,372 @@
 # Nodebase
 
-A self-hosted Firebase-like backend-as-a-service built in pure Java. Drop it on any server, point your app at it, and get auth, a real-time document database, file storage, and a security rules engine — no cloud required.
+Self-hosted Backend-as-a-Service written in pure Java 21. Ships as a single fat JAR — no application server, no external broker, no managed cloud required. Drop it on any JVM host and get a production-grade backend with auth, a document store, real-time subscriptions, file storage, and a hot-reloading security rules engine.
+
+**Stack:** Jetty 12 · SQLite (WAL) · JJWT · BCrypt · Jackson · Logback · Maven assembly
 
 ---
 
-## Features
+## Architecture
 
-- **Authentication** — JWT tokens, API keys, BCrypt password hashing
-- **Document Database** — NoSQL collections, full CRUD, JSON field filtering
-- **Real-time** — WebSocket subscriptions on collections and documents
-- **File Storage** — Upload/download/delete with per-bucket access control
-- **Security Rules** — JSON-based rules engine with hot-reload
-- **Admin API** — User management, stats, collection management
-- **Java SDK** — Embedded client for JVM applications
-- **Production ready** — Rate limiting, CORS, graceful shutdown, health probes
+```
+┌────────────────────────────────────────────────────────┐
+│                      HTTP / WS                         │
+│          Jetty 12 (embedded, single process)           │
+├──────────────┬─────────────────────────────────────────┤
+│  Middleware  │  CorsFilter → RateLimiter → AuthMiddleware│
+├──────────────┴─────────────────────────────────────────┤
+│  Router (servlet)                                      │
+│  /auth/**   /db/**   /storage/**   /admin/**   /health │
+├────────────┬──────────────┬───────────────┬────────────┤
+│ AuthService│DatabaseService│StorageService│AdminHandler│
+│ ApiKeySvc  │DocumentRepo   │StorageRepo   │RulesEngine │
+│ JwtProvider│QueryFilter    │              │            │
+└─────┬──────┴──────┬────────┴──────┬────── ┴──── ┬──────┘
+      │             │               │             │
+      └─────────────┴───────────────┴─────────────┘
+                           │
+                    SQLite (WAL mode)
+                    data/nodebase.db
+                           │
+              SubscriptionManager ──► WebSocket /realtime
+```
+
+All state lives in a single SQLite database opened in WAL mode (`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON`). Storage objects are written to the local filesystem under `storagePath`; metadata is kept in the same DB. There are no external dependencies at runtime.
 
 ---
 
 ## Requirements
 
-- Java 21
-- Maven 3.8+ (for building from source)
+| Dependency | Version |
+|---|---|
+| JDK | 21+ |
+| Maven | 3.8+ (build only) |
+
+No other runtime dependencies. The fat JAR bundles everything including Jetty, SQLite JDBC, and Jackson.
 
 ---
 
-## Quick Start
-
-### 1. Build
+## Build
 
 ```bash
 git clone https://github.com/joel767443/nodebase.git
 cd nodebase
 mvn package -q
+# produces target/nodebase-1.0.jar
 ```
 
-This produces `target/nodebase-1.0.jar` (fat JAR, no external dependencies).
+The `maven-assembly-plugin` shades all dependencies into a single executable JAR. The manifest `Main-Class` is `io.nodebase.NodebaseServer`.
 
-### 2. Run
+---
+
+## Run
 
 ```bash
 java -jar target/nodebase-1.0.jar
 ```
 
-Server starts on `http://0.0.0.0:8080` by default.
+```
+================================================================
+ Nodebase 1.0  |  http://0.0.0.0:8080
+ dashboard : http://0.0.0.0:8080/dashboard
+ data dir  : ./data
+ storage   : ./storage
+================================================================
+```
 
-### 3. Verify
+Health check:
 
 ```bash
-curl http://localhost:8080/health
-# {"status":"ok","uptime":2,"version":"1.0"}
+curl -s http://localhost:8080/health
+# {"status":"ok","version":"1.0","uptime":3}
 ```
 
 ---
 
 ## Configuration
 
-Create a `nodebase.properties` file in your working directory to override defaults:
+Configuration is resolved in this priority order (highest wins):
+
+1. JVM system properties (`-Dnodebase.<key>=<value>`)
+2. Environment variables (see table below)
+3. External `nodebase.properties` in the working directory
+4. Classpath `nodebase.properties` (bundled defaults)
+
+| Property key | Env var | Default | Description |
+|---|---|---|---|
+| `port` | `NODEBASE_PORT` | `8080` | HTTP listen port |
+| `host` | `NODEBASE_HOST` | `0.0.0.0` | Bind address |
+| `dataDir` | `NODEBASE_DATA_DIR` | `./data` | SQLite DB + rules file directory |
+| `storagePath` | `NODEBASE_STORAGE_PATH` | `./storage` | Filesystem root for uploaded objects |
+| `jwtSecret` | `NODEBASE_JWT_SECRET` | *(insecure default — override in prod)* | HMAC-SHA256 signing key, min 32 chars |
+| `masterKey` | `NODEBASE_MASTER_KEY` | *(insecure default)* | Admin authentication credential |
+| `maxUploadMb` | `NODEBASE_MAX_UPLOAD_MB` | `50` | Maximum upload size in MiB |
+| `cors.allowedOrigins` | `NODEBASE_CORS_ORIGINS` | `*` | Comma-separated allowed origins |
+| `jwtExpiryMillis` | `NODEBASE_JWT_EXPIRY_MS` | `86400000` | JWT TTL in milliseconds (default 24 h) |
+| `rateLimit.perIp` | — | `100` | Requests/minute per IP |
+| `rateLimit.perKey` | — | `1000` | Requests/minute per API key |
+
+**Example — override via properties file:**
 
 ```properties
-port=8080
-host=0.0.0.0
-dataDir=./data
-storagePath=./storage
-jwtSecret=change-me-use-at-least-32-characters
-masterKey=change-me-master-key
-maxUploadMb=50
-cors.allowedOrigins=*
-jwtExpiryMillis=86400000
+# nodebase.properties
+port=9090
+jwtSecret=at-least-32-characters-of-entropy-here
+masterKey=a-strong-admin-secret
+cors.allowedOrigins=https://app.example.com
+maxUploadMb=100
 ```
 
-All settings can also be passed as JVM system properties:
+**Example — override via JVM flags (useful for containers):**
 
 ```bash
-java -Dnodebase.port=9090 -Dnodebase.jwtSecret=my-secret -jar nodebase-1.0.jar
+java \
+  -Dnodebase.jwtSecret=prod-secret \
+  -Dnodebase.masterKey=prod-master \
+  -Dnodebase.port=8080 \
+  -jar nodebase-1.0.jar
 ```
 
 ---
 
 ## API Reference
 
-### Authentication
+All request/response bodies are `application/json`. Authenticated endpoints require either:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/auth/register` | Register a new user |
-| POST | `/auth/login` | Login and get JWT |
-| POST | `/auth/admin/login` | Admin login with master key |
-| POST | `/auth/apikey` | Generate API key (auth required) |
-| DELETE | `/auth/apikey` | Revoke API key (auth required) |
+- `Authorization: Bearer <jwt>` — issued by `/auth/login`
+- `x-api-key: <key>` — generated via `/auth/apikey`
 
-```bash
-# Register
-curl -X POST http://localhost:8080/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","password":"password123"}'
-# {"token":"<jwt>","userId":"<id>","role":"USER"}
+Errors follow a consistent envelope:
 
-# Login
-curl -X POST http://localhost:8080/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","password":"password123"}'
+```json
+{ "error": "<message>" }
 ```
 
-All subsequent requests use `Authorization: Bearer <token>` or `x-api-key: <key>`.
+### Authentication
+
+#### `POST /auth/register`
+
+```json
+// Request
+{ "email": "user@example.com", "password": "s3cr3t!" }
+
+// Response 201
+{ "token": "<jwt>", "userId": "<uuid>", "role": "USER" }
+```
+
+| Status | Condition |
+|---|---|
+| 201 | User created |
+| 400 | Missing/invalid fields |
+| 409 | Email already registered |
+
+#### `POST /auth/login`
+
+```json
+// Request
+{ "email": "user@example.com", "password": "s3cr3t!" }
+
+// Response 200
+{ "token": "<jwt>", "userId": "<uuid>", "role": "USER" }
+```
+
+| Status | Condition |
+|---|---|
+| 200 | OK |
+| 401 | Bad credentials |
+
+#### `POST /auth/admin/login`
+
+```json
+// Request
+{ "masterKey": "<configured-master-key>" }
+
+// Response 200
+{ "token": "<jwt>", "role": "ADMIN" }
+```
+
+#### `POST /auth/apikey`
+
+Requires Bearer auth. Generates a new API key bound to the authenticated user.
+
+```json
+// Response 201
+{ "apiKey": "<opaque-key>" }
+```
+
+#### `DELETE /auth/apikey`
+
+Revokes the authenticated user's current API key.
+
+---
 
 ### Database
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/db/{collection}` | List documents |
-| POST | `/db/{collection}` | Create document |
-| GET | `/db/{collection}/{id}` | Get document |
-| PUT | `/db/{collection}/{id}` | Replace document |
-| PATCH | `/db/{collection}/{id}` | Partial update |
-| DELETE | `/db/{collection}/{id}` | Delete document |
+The document store is schemaless. Collections are created implicitly on first write. Documents are stored as JSON blobs in SQLite with UUID primary keys, `createdAt`, and `updatedAt` timestamps (Unix millis).
 
-**Query filters:**
+#### `GET /db/{collection}`
+
+Returns an array of documents. Supports query filters:
+
 ```
-GET /db/users?where[name][eq]=Alice&orderBy=createdAt&order=desc&limit=20&offset=0
+GET /db/users?where[name][eq]=Alice
+             &where[age][gte]=18
+             &orderBy=createdAt
+             &order=desc
+             &limit=20
+             &offset=0
 ```
 
-Supported operators: `eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `contains`
+Supported filter operators: `eq` `ne` `gt` `lt` `gte` `lte` `contains`
+
+```json
+// Response 200
+[
+  { "id": "<uuid>", "name": "Alice", "age": 30, "createdAt": 1704067200000, "updatedAt": 1704067200000 }
+]
+```
+
+#### `POST /db/{collection}`
+
+```json
+// Request — arbitrary JSON object
+{ "name": "Alice", "age": 30 }
+
+// Response 201
+{ "id": "<uuid>", "name": "Alice", "age": 30, "createdAt": 1704067200000, "updatedAt": 1704067200000 }
+```
+
+#### `GET /db/{collection}/{id}`
+
+```json
+// Response 200 | 404
+{ "id": "<uuid>", ... }
+```
+
+#### `PUT /db/{collection}/{id}`
+
+Full replacement. Preserves `id` and `createdAt`.
+
+#### `PATCH /db/{collection}/{id}`
+
+Shallow merge. Only provided fields are updated; omitted fields are left intact.
+
+#### `DELETE /db/{collection}/{id}`
+
+```
+// Response 204 | 404
+```
+
+All mutations publish a real-time event through `SubscriptionManager` before returning the HTTP response.
+
+---
 
 ### Storage
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/storage/{bucket}/{path}` | Upload file |
-| GET | `/storage/{bucket}/{path}` | Download file |
-| DELETE | `/storage/{bucket}/{path}` | Delete file |
-| GET | `/storage/{bucket}` | List files in bucket |
+Objects are stored on the local filesystem under `{storagePath}/{bucket}/{path}`. Path traversal is blocked at the `StorageService` layer — any `..` segment returns 400.
+
+#### `POST /storage/{bucket}/{path}`
+
+Upload a file. The `Content-Type` header is stored alongside the object and returned on download.
 
 ```bash
-curl -X POST http://localhost:8080/storage/avatars/user123.png \
+curl -X POST http://localhost:8080/storage/avatars/alice.png \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: image/png" \
-  --data-binary @avatar.png
+  --data-binary @alice.png
 ```
 
-### Real-time (WebSocket)
+| Status | Condition |
+|---|---|
+| 201 | Uploaded |
+| 400 | Path traversal detected |
+| 413 | Exceeds `maxUploadMb` |
 
-Connect to `ws://localhost:8080/realtime?token=<jwt>` and send JSON messages:
+#### `GET /storage/{bucket}/{path}`
+
+Downloads the object. Responds with the stored `Content-Type`.
+
+#### `DELETE /storage/{bucket}/{path}`
+
+```
+// Response 204 | 404
+```
+
+#### `GET /storage/{bucket}`
+
+Lists all objects in the bucket.
 
 ```json
-{ "type": "subscribe",   "channel": "db/messages" }
-{ "type": "unsubscribe", "channel": "db/messages" }
-{ "type": "ping" }
+// Response 200
+[
+  { "bucket": "avatars", "path": "alice.png", "size": 24056, "contentType": "image/png", "createdAt": 1704067200000 }
+]
 ```
 
-Events received on mutations:
-```json
-{ "type": "CREATED", "collection": "messages", "documentId": "<id>", "data": {...}, "timestamp": 1704567890 }
-```
+---
 
 ### Health
 
 ```
-GET /health        → {"status":"ok","version":"1.0","uptime":<seconds>}
-GET /health/ready  → {"status":"ready","database":"ok"}   (503 if DB is down)
+GET /health       → 200  {"status":"ok","version":"1.0","uptime":<seconds>}
+GET /health/ready → 200  {"status":"ready","database":"ok"}
+                   503   {"status":"unavailable","database":"error"}
 ```
+
+`/health/ready` issues a live `SELECT 1` against SQLite. Use this as the Kubernetes readiness probe; use `/health` as the liveness probe.
+
+---
 
 ### Admin
 
-All admin endpoints require a token from `POST /auth/admin/login` with the master key.
+All endpoints require a token obtained from `POST /auth/admin/login`.
 
-```
-GET    /admin/stats
-GET    /admin/users
-DELETE /admin/users/{id}
-GET    /admin/collections
-DELETE /admin/collections/{name}
-GET    /admin/rules
-POST   /admin/rules
-```
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/admin/stats` | Server stats: user count, document count, storage usage |
+| `GET` | `/admin/users` | List all users |
+| `DELETE` | `/admin/users/{id}` | Delete user and revoke their tokens |
+| `GET` | `/admin/collections` | List all collections with document counts |
+| `DELETE` | `/admin/collections/{name}` | Drop an entire collection |
+| `GET` | `/admin/rules` | Retrieve active security rules |
+| `POST` | `/admin/rules` | Replace security rules (persisted to disk, hot-reloaded) |
 
 ---
 
 ## Security Rules
 
-Rules are loaded from `{dataDir}/security-rules.json` and hot-reloaded every 30 seconds.
+Rules are loaded from `{dataDir}/security-rules.json`. If the file is absent, the classpath default is used. The engine polls for changes every 30 seconds using a daemon thread — no restart required.
+
+### Rule schema
+
+```json
+[
+  {
+    "resource":  "db/*",
+    "operation": "READ",
+    "condition": "AUTHENTICATED",
+    "enabled":   true
+  }
+]
+```
+
+| Field | Values |
+|---|---|
+| `resource` | Exact path (`db/users`) or wildcard (`db/*`, `storage/*`, `admin/*`) |
+| `operation` | `READ` `WRITE` `DELETE` `ALL` |
+| `condition` | `PUBLIC` `AUTHENTICATED` `OWNER` `ADMIN` |
+| `enabled` | `true` / `false` — disabled rules are skipped without removal |
+
+### Condition semantics
+
+| Condition | Access granted when |
+|---|---|
+| `PUBLIC` | Always — no token required |
+| `AUTHENTICATED` | Valid JWT or API key present |
+| `OWNER` | Authenticated and the document's `userId` field matches the caller's ID |
+| `ADMIN` | Token issued via `POST /auth/admin/login` |
+
+### Default ruleset
 
 ```json
 [
@@ -191,78 +379,202 @@ Rules are loaded from `{dataDir}/security-rules.json` and hot-reloaded every 30 
 ]
 ```
 
-**Conditions:** `PUBLIC`, `AUTHENTICATED`, `OWNER`, `ADMIN`  
-**Operations:** `READ`, `WRITE`, `DELETE`, `ALL`  
-**Resources:** exact (`db/users`) or wildcard (`db/*`)
+---
+
+## Real-time (WebSocket)
+
+Connect to `ws://localhost:8080/realtime?token=<jwt>`. The token is validated on connection upgrade; unauthenticated connections are rejected with `401`.
+
+### Client → server messages
+
+```json
+{ "type": "subscribe",   "channel": "db/messages" }
+{ "type": "unsubscribe", "channel": "db/messages" }
+{ "type": "ping" }
+```
+
+`channel` must be a `db/{collection}` path. Wildcards are not supported.
+
+### Server → client events
+
+```json
+{
+  "type":       "CREATED",
+  "collection": "messages",
+  "documentId": "<uuid>",
+  "data":       { "text": "Hello", "author": "Alice" },
+  "timestamp":  1704067200000
+}
+```
+
+`type` is one of `CREATED` `UPDATED` `DELETED`. Events are broadcast to all sessions subscribed to the affected collection synchronously within the same request thread that performed the mutation.
 
 ---
 
 ## Java SDK
 
+The embedded client (`io.nodebase.sdk.NodebaseClient`) communicates with the server over HTTP. Include the fat JAR on your classpath or copy the `sdk` package into your project.
+
 ```java
 NodebaseClient client = new NodebaseClient("http://localhost:8080");
 
-// Auth
-String token = client.auth().login("user@example.com", "password123");
+// Authentication
+String token = client.auth().login("user@example.com", "s3cr3t!");
+// token is stored internally on the client; subsequent calls include it automatically
 
-// Database
-Map<String, Object> doc = client.database()
-    .collection("messages")
+// Registration
+client.auth().register("newuser@example.com", "password");
+
+// Document operations
+NodebaseDatabase db = client.database();
+
+Map<String, Object> doc = db.collection("messages")
     .add(Map.of("text", "Hello", "author", "Alice"));
 
-List<Map<String, Object>> all = client.database().collection("messages").list();
+List<Map<String, Object>> messages = db.collection("messages").list();
 
-client.database().collection("messages")
-    .update(doc.get("id").toString(), Map.of("text", "Hello, World!"));
+db.collection("messages")
+    .update(doc.get("id").toString(), Map.of("text", "Updated"));
 
-// Storage
-client.storage().upload("avatars", "user.png", imageBytes, "image/png");
-byte[] data = client.storage().download("avatars", "user.png");
+db.collection("messages").delete(doc.get("id").toString());
+
+// Storage operations
+NodebaseStorage storage = client.storage();
+
+storage.upload("avatars", "alice.png", imageBytes, "image/png");
+byte[] data = storage.download("avatars", "alice.png");
+storage.delete("avatars", "alice.png");
 ```
+
+`NodebaseException` is thrown on non-2xx responses. It carries the HTTP status code and the server error message.
+
+---
+
+## Rate Limiting
+
+The `RateLimiter` middleware uses a per-identifier sliding window keyed on request arrival time.
+
+| Identifier | Limit | Window |
+|---|---|---|
+| Client IP | 100 req/min (configurable via `rateLimit.perIp`) | 60 s |
+| API key | 1 000 req/min (configurable via `rateLimit.perKey`) | 60 s |
+
+When the limit is exceeded:
+
+```
+HTTP 429
+Retry-After: 60
+{ "error": "rate limit exceeded", "retryAfter": 60 }
+```
+
+IP is extracted from `X-Forwarded-For` if present, falling back to `remoteAddr`. If the request carries both an API key and an IP, the API key identifier takes precedence.
 
 ---
 
 ## Production Deployment
 
-### systemd service
+### Secrets
+
+Before going to production, **always override** these two defaults in `nodebase.properties` or via env vars:
+
+```properties
+jwtSecret=<min-32-char-high-entropy-string>
+masterKey=<high-entropy-admin-credential>
+```
+
+### systemd
 
 ```ini
 [Unit]
-Description=Nodebase Server
+Description=Nodebase
 After=network.target
 
 [Service]
 User=nodebase
 WorkingDirectory=/opt/nodebase
+EnvironmentFile=/opt/nodebase/.env
 ExecStart=/usr/bin/java \
-  -Dnodebase.jwtSecret=<strong-secret> \
-  -Dnodebase.masterKey=<strong-master-key> \
+  -Xmx512m \
+  -Dnodebase.jwtSecret=${JWT_SECRET} \
+  -Dnodebase.masterKey=${MASTER_KEY} \
   -Dnodebase.port=8080 \
   -jar /opt/nodebase/nodebase-1.0.jar
 Restart=on-failure
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-### Nginx reverse proxy (with WebSocket support)
+### Docker
+
+```dockerfile
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY target/nodebase-1.0.jar nodebase.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "nodebase.jar"]
+```
+
+```bash
+docker build -t nodebase:1.0 .
+docker run -d \
+  -p 8080:8080 \
+  -e NODEBASE_JWT_SECRET=prod-secret \
+  -e NODEBASE_MASTER_KEY=prod-master \
+  -v nodebase-data:/app/data \
+  -v nodebase-storage:/app/storage \
+  nodebase:1.0
+```
+
+### Nginx (with WebSocket upgrade)
 
 ```nginx
-location / {
-    proxy_pass http://127.0.0.1:8080;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+upstream nodebase {
+    server 127.0.0.1:8080;
+    keepalive 64;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name api.example.com;
+
+    location / {
+        proxy_pass         http://nodebase;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host       $host;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 3600s;
+    }
 }
 ```
 
+The `proxy_read_timeout 3600s` is required for long-lived WebSocket connections.
+
 ---
 
-## Rate Limits
+## Operational Notes
 
-- **Per IP:** 100 requests/minute
-- **Per API key:** 1000 requests/minute
-- Exceeding the limit returns HTTP 429 with a `Retry-After` header.
+**Graceful shutdown** — A JVM shutdown hook calls `RulesEngine.shutdown()`, closes the Jetty server with a 30-second drain timeout (`setStopTimeout(30_000L)`), then closes the SQLite connection. SIGTERM is safe.
+
+**SQLite WAL mode** — WAL is enabled at startup (`PRAGMA journal_mode=WAL`). This allows one writer and multiple concurrent readers without blocking. For single-host deployments this is sufficient; horizontal scaling is not supported by this storage backend.
+
+**SQLite foreign keys** — Enabled via `PRAGMA foreign_keys=ON`. Repositories enforce referential integrity at the application layer as well.
+
+**Rules hot-reload** — The `RulesEngine` polls `{dataDir}/security-rules.json` every 30 seconds on a daemon thread. Updates are applied atomically via `AtomicReference`. There is no HTTP endpoint to trigger an immediate reload; use `POST /admin/rules` instead.
+
+**Log output** — Structured JSON logging via Logback. Override `src/main/resources/logback.xml` before building to customise appenders or log levels.
+
+---
+
+## Known Limitations
+
+- **Single-node only.** SQLite is not designed for multi-process concurrent writes. Do not run multiple instances sharing the same `dataDir`.
+- **No document-level ownership index.** The `OWNER` rule condition performs an in-memory field comparison against `userId` on each matched document — not a DB index scan. Large collections with `OWNER`-guarded reads will be slow.
+- **No query index hints.** All `where` filters run as in-memory predicates after a full collection scan from SQLite. There is no `CREATE INDEX` path exposed.
+- **Storage is local filesystem only.** There is no S3 or object-storage backend. Horizontal scaling requires a shared mount (NFS, EFS, etc.).
+- **WebSocket fan-out is in-process.** Real-time events are broadcast synchronously in the mutation request thread. High subscriber counts under write load will increase mutation latency.
