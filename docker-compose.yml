@@ -1,0 +1,33 @@
+version: '3.9'
+
+# Nodebase ships as a single fat JAR with no external service dependencies.
+# SQLite (WAL mode) and local file storage run inside the container.
+# Persistent data is kept in named Docker volumes so it survives restarts.
+
+services:
+  app:
+    build: .
+    ports:
+      - '8080:8080'
+    environment:
+      nodebase.port: 8080
+      nodebase.storagePath: /app/storage
+      nodebase.jwtSecret: ${JWT_SECRET:-change-me-in-production-min-32-chars}
+      nodebase.jwtExpiryMs: ${JWT_EXPIRY_MS:-3600000}
+      nodebase.masterKey: ${MASTER_KEY:-change-me-in-production}
+    volumes:
+      - data:/app/data
+      - storage:/app/storage
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8080/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  data:
+    driver: local
+  storage:
+    driver: local
