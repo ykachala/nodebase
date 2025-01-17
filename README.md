@@ -4,6 +4,8 @@ Self-hosted Backend-as-a-Service written in pure Java 21. Ships as a single fat 
 
 **Stack:** Jetty 12 · SQLite (WAL) · JJWT · BCrypt · Jackson · Logback · Maven assembly
 
+[![CI](https://github.com/ykachala/nodebase/actions/workflows/ci.yml/badge.svg)](https://github.com/ykachala/nodebase/actions/workflows/ci.yml)
+
 ---
 
 ## Architecture
