@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nodebase Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/dashboard/static/style.css">
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen">
+
+  <!-- Login Screen -->
+  <div id="login-screen" class="hidden min-h-screen flex items-center justify-center bg-nb-dark">
+    <div class="bg-white rounded-2xl shadow-xl p-10 w-full max-w-sm">
+      <div class="flex items-center gap-3 mb-8">
+        <div class="w-10 h-10 rounded-xl bg-nb-accent flex items-center justify-center text-white font-bold text-lg">N</div>
+        <h1 class="text-2xl font-bold text-gray-900">Nodebase</h1>
+      </div>
+      <p class="text-sm text-gray-500 mb-6">Sign in with your master key to access the dashboard.</p>
+      <form id="login-form">
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Master Key</label>
+        <input id="master-key-input" type="password" placeholder="Enter master key"
+          class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-nb-accent text-sm mb-4">
+        <div id="login-error" class="hidden text-red-500 text-sm mb-3"></div>
+        <button type="submit"
+          class="w-full py-3 bg-nb-accent text-white font-semibold rounded-lg hover:opacity-90 transition-opacity">
+          Sign In
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app-shell" class="hidden flex min-h-screen">
+    <!-- Sidebar -->
+    <aside class="sidebar w-56 flex-shrink-0 flex flex-col py-6 px-4">
+      <div class="flex items-center gap-2 px-2 mb-8">
+        <div class="w-8 h-8 rounded-lg bg-nb-accent flex items-center justify-center text-white font-bold text-sm">N</div>
+        <span class="text-white font-semibold text-sm">Nodebase</span>
+      </div>
+
+      <nav class="flex flex-col gap-1">
+        <a href="#" class="nav-item active" data-tab="overview">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+          Overview
+        </a>
+        <a href="#" class="nav-item" data-tab="database">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582 4 8 4s8 1.79 8 4"/></svg>
+          Database
+        </a>
+        <a href="#" class="nav-item" data-tab="realtime">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          Realtime
+        </a>
+        <a href="#" class="nav-item" data-tab="settings">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+          Settings
+        </a>
+        <a href="#" class="nav-item" data-tab="guide">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          Integration Guide
+        </a>
+      </nav>
+
+      <div class="mt-auto px-2">
+        <button id="logout-btn" class="w-full text-left text-xs text-gray-400 hover:text-white transition-colors py-2">
+          Sign out
+        </button>
+      </div>
+    </aside>
+
+    <!-- Content Area -->
+    <main class="flex-1 overflow-auto">
+      <div id="tab-overview" class="tab-content p-8"></div>
+      <div id="tab-database" class="tab-content hidden p-8"></div>
+      <div id="tab-realtime" class="tab-content hidden p-8"></div>
+      <div id="tab-settings" class="tab-content hidden p-8"></div>
+      <div id="tab-guide" class="tab-content hidden p-8"></div>
+    </main>
+  </div>
+
+  <script src="/dashboard/static/app.js"></script>
+</body>
+</html>
